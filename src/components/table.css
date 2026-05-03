@@ -1,0 +1,13 @@
+table {
+  border-collapse: collapse;
+  border: 1px solid black;
+}
+
+.table-header {
+  background-color: antiquewhite;
+}
+
+.table-data {
+  color: #2e2e2e;
+  padding: 10px 20px;
+}

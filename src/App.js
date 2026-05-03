@@ -1,23 +1,17 @@
-import logo from './logo.svg';
-import './App.css';
+import TableView from "./components/table";
+import FilterView from "./components/filter";
+import { field, testData } from "./data/test";
+import "./App.css";
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div className='App'>
+      <div className='filter-wrapper'>
+        <FilterView data={testData} />
+      </div>
+      <div className='table-wrapper'>
+        <TableView field={field} data={testData} />
+      </div>
     </div>
   );
 }

@@ -1,0 +1,82 @@
+.main-filter-item {
+  display: flex;
+  flex-direction: column;
+  padding-left: 30px;
+}
+
+.main-filter-title {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.toggle-icon {
+  position: absolute;
+  left: -15px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.sub-filter-list {
+  list-style: none;
+  padding: 0 10px;
+  margin: 0;
+  text-align: left;
+}
+
+.sub-filter-item {
+  display: flex;
+  flex-direction: column;
+  padding-left: 10px;
+}
+
+.sub-filter-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.minor-filter-list {
+  list-style: none;
+  padding: 0 10px;
+  margin: 0;
+  text-align: left;
+}
+
+.minor-filter-item {
+  display: flex;
+  flex-direction: column;
+  padding-left: 10px;
+}
+
+.minor-filter-title {
+  position: relative;
+}
+
+.final-filter-item {
+  display: flex;
+  flex-direction: column;
+  /* padding-left: 30px; */
+  align-items: flex-start;
+}
+
+.dot-icon {
+  position: relative;
+  padding-left: 30px;
+}
+
+.dot-icon::before {
+  content: "•";
+  position: absolute;
+  left: 15px;
+  top: 0;
+}
+
+label {
+  cursor: pointer;
+}
