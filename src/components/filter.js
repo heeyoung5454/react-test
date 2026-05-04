@@ -80,11 +80,13 @@ export default function FilterView({ data }) {
 
   // 토글 on/off
   const handleOpen = (type, mainIndex, subIndex, minorIndex) => {
+    
     // 대분류 토글
     if (type === "main") {
       setTreeData((items) => {
         return items.map((main, i) => (i === mainIndex ? { ...main, isOpen: !main.isOpen } : main));
       });
+
       return;
     }
 
@@ -130,7 +132,36 @@ export default function FilterView({ data }) {
   const handleCheck = (type, mainIndex, subIndex, minorIndex, finalIndex) => {
     // 대분류 선택
     if (type === "main") {
-      setTreeData((items) => items.map((main, i) => (i === mainIndex ? { ...main, isChecked: !main.isChecked } : main)));
+      setTreeData((items)=>{
+        return items.map((main, i) => {
+            if (i !== mainIndex) return main;
+
+            return {
+              ...main,
+              isChecked: !main.isChecked,
+
+              children: main.children.map((sub) => {
+                return {
+                  ...sub,
+                  isChecked:  !main.isChecked,
+                  children: sub.children.map((minor) => {
+                    return {
+                      ...minor,
+                      isChecked: !main.isChecked,
+                      // minor.childen이 존재할 경우
+                      children: minor.children?.map((final) => {
+                        return {
+                          ...final,
+                          isChecked: !main.isChecked,
+                        };
+                      }),
+                    };
+                  }),
+                };
+              }),
+            };
+          })               
+      });
       return;
     }
 
@@ -139,13 +170,39 @@ export default function FilterView({ data }) {
       setTreeData((items) =>
         items.map((main, i) => {
           if (i !== mainIndex) return main;
-
+    
+          // 1. sub 체크
+          const updatedSubs = main.children.map((sub, j) => {
+            if (j !== subIndex) return sub;
+    
+            return {
+              ...sub,
+              isChecked:  !sub.isChecked,
+              children: sub.children.map((minor) => ({
+                ...minor,
+                isChecked:  !sub.isChecked,
+                // minor.childen이 존재할 경우
+                children: minor.children?.map((final) => {
+                  return {
+                    ...final,
+                    isChecked:  !sub.isChecked,
+                  };
+                }),
+              })),
+            };
+          });
+    
+          // 2. main 체크 
+          const allChecked = updatedSubs.some((sub) => sub.isChecked);
+    
           return {
             ...main,
-            children: main.children.map((sub, j) => (j === subIndex ? { ...sub, isChecked: !sub.isChecked } : sub)),
+            isChecked: allChecked,
+            children: updatedSubs,
           };
         })
       );
+    
       return;
     }
 
@@ -154,20 +211,49 @@ export default function FilterView({ data }) {
       setTreeData((items) =>
         items.map((main, i) => {
           if (i !== mainIndex) return main;
-
+    
+          // 1. sub 체크
+          const updatedSubs = main.children.map((sub, j) => {
+            if (j !== subIndex) return sub;
+    
+            // 1-1. minor 체크
+            const updatedMinors = sub.children.map((minor, k) => {
+              if (k !== minorIndex) return minor;
+    
+              return {
+                ...minor,
+                isChecked: !minor.isChecked,
+                 // minor.childen이 존재할 경우
+                 children: minor.children?.map((final) => {
+                  return {
+                    ...final,
+                    isChecked: !minor.isChecked,
+                  };
+                }),
+              };
+            });
+    
+            // 1-2. sub 체크 
+            const subChecked = updatedMinors.some((m) => m.isChecked);
+    
+            return {
+              ...sub,
+              isChecked: subChecked,
+              children: updatedMinors,
+            };
+          });
+          
+          // 2. main 체크 
+          const mainChecked = updatedSubs.some((sub) => sub.isChecked);
+    
           return {
             ...main,
-            children: main.children.map((sub, j) => {
-              if (j !== subIndex) return sub;
-
-              return {
-                ...sub,
-                children: sub.children.map((minor, k) => (k === minorIndex ? { ...minor, isChecked: !minor.isChecked } : minor)),
-              };
-            }),
+            isChecked: mainChecked,
+            children: updatedSubs,
           };
         })
       );
+    
       return;
     }
 
@@ -175,24 +261,46 @@ export default function FilterView({ data }) {
       setTreeData((items) =>
         items.map((main, i) => {
           if (i !== mainIndex) return main;
-
+    
+          const updatedSubs = main.children.map((sub, j) => {
+            if (j !== subIndex) return sub;
+    
+            const updatedMinors = sub.children.map((minor, k) => {
+              if (k !== minorIndex) return minor;
+    
+              const updatedFinals = minor.children.map((final, l) =>
+                l === finalIndex
+                  ? { ...final, isChecked: !final.isChecked }
+                  : final
+              );
+    
+              // minor 체크
+              const allChecked = updatedFinals.every((f) => f.isChecked);
+    
+              return {
+                ...minor,
+                children: updatedFinals,
+                isChecked: allChecked, // 전부 체크일 때만 true
+              };
+            });
+    
+            // sub 체크
+            const subAllChecked = updatedMinors.every((m) => m.isChecked);
+    
+            return {
+              ...sub,
+              children: updatedMinors,
+              isChecked: subAllChecked,
+            };
+          });
+    
+          // main 체크
+          const mainAllChecked = updatedSubs.every((s) => s.isChecked);
+    
           return {
             ...main,
-            children: main.children.map((sub, j) => {
-              if (j !== subIndex) return sub;
-
-              return {
-                ...sub,
-                children: sub.children.map((minor, k) => {
-                  if (k !== minorIndex) return minor;
-
-                  return {
-                    ...minor,
-                    children: minor.children.map((final, l) => (l === finalIndex ? { ...final, isChecked: !final.isChecked } : final)),
-                  };
-                }),
-              };
-            }),
+            children: updatedSubs,
+            isChecked: mainAllChecked,
           };
         })
       );
@@ -213,7 +321,16 @@ export default function FilterView({ data }) {
             <span className='toggle-icon' onClick={() => handleOpen("main", mainIndex)}>
               {mainItem.isOpen ? "▼" : "〉"}
             </span>
-            <input type='checkbox' value={mainItem.isChecked} id={mainItem.label} onChange={() => handleCheck("main", mainIndex)} />
+            <input type='checkbox' checked={mainItem.children.every(sub => sub.isChecked)} id={mainItem.label}
+              ref={(el) => {
+                if (!el) return;
+            
+                const allChecked = mainItem.children.every(sub => sub.isChecked);
+                const someChecked = mainItem.children.some(sub => sub.isChecked);
+            
+                el.indeterminate = someChecked && !allChecked;
+              }}
+              onChange={() => handleCheck("main", mainIndex)} />
             <label htmlFor={mainItem.label}>
               {mainItem.label} ({mainItem.children.length})
             </label>
@@ -226,7 +343,16 @@ export default function FilterView({ data }) {
               mainItem.children.map((subItem, subIndex) => (
                 <div className='sub-filter-item' key={`${mainItem.label}-${subItem.label}`}>
                   <div className='sub-filter-title'>
-                    <input type='checkbox' checked={subItem.isChecked} id={`${mainItem.label}-${subItem.label}`} onChange={() => handleCheck("sub", mainIndex, subIndex)} />
+                    <input type='checkbox' checked={subItem.children.every(minor => minor.isChecked)} id={`${mainItem.label}-${subItem.label}`} 
+                       ref={(el) => {
+                        if (!el) return;
+                    
+                        const allChecked = subItem.children.every(minor => minor.isChecked);
+                        const someChecked = subItem.children.some(minor => minor.isChecked);
+                    
+                        el.indeterminate = someChecked && !allChecked;
+                      }}
+                    onChange={() => handleCheck("sub", mainIndex, subIndex)} />
                     <label htmlFor={`${mainItem.label}-${subItem.label}`}>
                       {subItem.label} ({subItem.children.length})
                     </label>
@@ -257,6 +383,18 @@ export default function FilterView({ data }) {
                               type='checkbox'
                               checked={minorItem.isChecked}
                               id={`${mainItem.label}-${subItem.label}-${minorItem.label}`}
+                              ref={(el) => {
+                                if (!el) return;
+                            
+                                if (minorItem.type !== "name" && minorItem.children?.length > 0) {
+                                  const allChecked = minorItem.children.every(final => final.isChecked);
+                                  const someChecked = minorItem.children.some(final => final.isChecked);
+                            
+                                  el.indeterminate = someChecked && !allChecked;
+                                } else {
+                                  el.indeterminate = false;
+                                }
+                              }}
                               onChange={() => {
                                 handleCheck("minor", mainIndex, subIndex, minorIndex);
                               }}
