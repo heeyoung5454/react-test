@@ -2,8 +2,11 @@ import "./filter.css";
 
 import { useState, useEffect } from "react";
 
-export default function FilterView({ data }) {
+export default function FilterView({ data, onChange }) {
   const [treeData, setTreeData] = useState(makeTree(data));
+  const [selectedCnt, setSelectedCnt] = useState(0);
+
+  const totalCnt = data.length;
 
   function makeTree(data) {
     const mainMap = new Map();
@@ -80,7 +83,7 @@ export default function FilterView({ data }) {
 
   // 토글 on/off
   const handleOpen = (type, mainIndex, subIndex, minorIndex) => {
-    
+
     // 대분류 토글
     if (type === "main") {
       setTreeData((items) => {
@@ -193,7 +196,7 @@ export default function FilterView({ data }) {
           });
     
           // 2. main 체크 
-          const allChecked = updatedSubs.some((sub) => sub.isChecked);
+          const allChecked = updatedSubs.every((sub) => sub.isChecked);
     
           return {
             ...main,
@@ -234,21 +237,21 @@ export default function FilterView({ data }) {
             });
     
             // 1-2. sub 체크 
-            const subChecked = updatedMinors.some((m) => m.isChecked);
+            const allChecked = updatedMinors.every((minor) => minor.isChecked);
     
             return {
               ...sub,
-              isChecked: subChecked,
+              isChecked: allChecked,
               children: updatedMinors,
             };
           });
           
-          // 2. main 체크 
-          const mainChecked = updatedSubs.some((sub) => sub.isChecked);
+          // 2. main 체크           
+          const allChecked = updatedSubs.every((sub) => sub.isChecked);
     
           return {
             ...main,
-            isChecked: mainChecked,
+            isChecked: allChecked,
             children: updatedSubs,
           };
         })
@@ -275,12 +278,12 @@ export default function FilterView({ data }) {
               );
     
               // minor 체크
-              const allChecked = updatedFinals.every((f) => f.isChecked);
+              const allChecked = updatedFinals.every((final) => final.isChecked);
     
               return {
                 ...minor,
                 children: updatedFinals,
-                isChecked: allChecked, // 전부 체크일 때만 true
+                isChecked: allChecked, 
               };
             });
     
@@ -294,13 +297,13 @@ export default function FilterView({ data }) {
             };
           });
     
-          // main 체크
-          const mainAllChecked = updatedSubs.every((s) => s.isChecked);
+          // main 체크         
+          const allChecked = updatedSubs.every((sub) => sub.isChecked);
     
           return {
             ...main,
             children: updatedSubs,
-            isChecked: mainAllChecked,
+            isChecked: allChecked,
           };
         })
       );
@@ -308,129 +311,163 @@ export default function FilterView({ data }) {
     }
   };
 
-  useEffect(() => {
-    setTreeData(makeTree(data));
-  }, [data]);
+
+  
+useEffect(() => {
+  // useEffect 안에서만 쓰는 함수는 안으로 넣는다 (컴포넌트 내부 함수라서 렌더링마다 새로 생성됨)
+  const getCheckedPolicyIds = (tree) => {
+    let result = [];
+
+    tree.forEach((node) => {
+      if (node.type === "name" && node.isChecked) {
+        result.push(node.policyId);
+      }
+
+      if (node.children) {
+        result = result.concat(getCheckedPolicyIds(node.children));
+      }
+    });
+
+    return result;
+  };
+
+  const ids = getCheckedPolicyIds(treeData);
+  onChange?.(ids);
+  setSelectedCnt(ids.length);
+console.log(treeData);
+}, [treeData, onChange]);
 
   return (
     <div>
-      {treeData.map((mainItem, mainIndex) => (
-        <div className='main-filter-item' key={mainItem.label}>
-          {/* s : 대분류 */}
-          <div className='main-filter-title'>
-            <span className='toggle-icon' onClick={() => handleOpen("main", mainIndex)}>
-              {mainItem.isOpen ? "▼" : "〉"}
-            </span>
-            <input type='checkbox' checked={mainItem.children.every(sub => sub.isChecked)} id={mainItem.label}
-              ref={(el) => {
-                if (!el) return;
-            
-                const allChecked = mainItem.children.every(sub => sub.isChecked);
-                const someChecked = mainItem.children.some(sub => sub.isChecked);
-            
-                el.indeterminate = someChecked && !allChecked;
-              }}
-              onChange={() => handleCheck("main", mainIndex)} />
-            <label htmlFor={mainItem.label}>
-              {mainItem.label} ({mainItem.children.length})
-            </label>
-          </div>
-          {/* e : 대분류 */}
+      <div>
+        {treeData.map((mainItem, mainIndex) => (
+          <div className='main-filter-item' key={mainItem.label}>
+            {/* s : 대분류 */}
+            <div className='main-filter-title'>
+              <span className='toggle-icon' onClick={() => handleOpen("main", mainIndex)}>
+                {mainItem.isOpen ? "▼" : "〉"}
+              </span>
+              <input type='checkbox' checked={mainItem.children.every(sub => sub.isChecked)} id={mainItem.label}
+                ref={(el) => {
+                  if (!el) return;
+              
+                  const allChecked = mainItem.children.every(sub => sub.isChecked);
+                  const someChecked = mainItem.children.some(sub => sub.isChecked);
+              
+                  el.indeterminate = someChecked && !allChecked;
+                }}
+                onChange={() => handleCheck("main", mainIndex)} />
+              <label htmlFor={mainItem.label}>
+                {mainItem.label} ({mainItem.children.length})
+              </label>
+            </div>
+            {/* e : 대분류 */}
 
-          {/* s : 중분류 */}
-          <div className='sub-filter-list'>
-            {mainItem.isOpen &&
-              mainItem.children.map((subItem, subIndex) => (
-                <div className='sub-filter-item' key={`${mainItem.label}-${subItem.label}`}>
-                  <div className='sub-filter-title'>
-                    <input type='checkbox' checked={subItem.children.every(minor => minor.isChecked)} id={`${mainItem.label}-${subItem.label}`} 
-                       ref={(el) => {
-                        if (!el) return;
-                    
-                        const allChecked = subItem.children.every(minor => minor.isChecked);
-                        const someChecked = subItem.children.some(minor => minor.isChecked);
-                    
-                        el.indeterminate = someChecked && !allChecked;
-                      }}
-                    onChange={() => handleCheck("sub", mainIndex, subIndex)} />
-                    <label htmlFor={`${mainItem.label}-${subItem.label}`}>
-                      {subItem.label} ({subItem.children.length})
-                    </label>
-                    <span className='toggle-icon' onClick={() => handleOpen("sub", mainIndex, subIndex)}>
-                      {subItem.isOpen ? "▼" : "〉"}
-                    </span>
-                  </div>
+            {/* s : 중분류 */}
+            <div className='sub-filter-list'>
+              {mainItem.isOpen &&
+                mainItem.children.map((subItem, subIndex) => (
+                  <div className='sub-filter-item' key={`${mainItem.label}-${subItem.label}`}>
+                    <div className='sub-filter-title'>
+                      <input type='checkbox' checked={subItem.children.every(minor => minor.isChecked)} id={`${mainItem.label}-${subItem.label}`} 
+                        ref={(el) => {
+                          if (!el) return;
+                      
+                          const allChecked = subItem.children.every(minor => minor.isChecked);
+                          const someChecked = subItem.children.some(minor => minor.isChecked);
+                      
+                          el.indeterminate = someChecked && !allChecked;
+                        }}
+                      onChange={() => handleCheck("sub", mainIndex, subIndex)} />
+                      <label htmlFor={`${mainItem.label}-${subItem.label}`}>
+                        {subItem.label} ({subItem.children.length})
+                      </label>
+                      <span className='toggle-icon' onClick={() => handleOpen("sub", mainIndex, subIndex)}>
+                        {subItem.isOpen ? "▼" : "〉"}
+                      </span>
+                    </div>
 
-                  {/* s : 소분류 (없을때는 name 출력, 있을때는 소분류 출력) */}
-                  <div className='minor-filter-list'>
-                    {subItem.isOpen &&
-                      subItem.children.map((minorItem, minorIndex) => (
-                        <div className='minor-filter-item' key={`${mainItem.label}-${subItem.label}-${minorItem.label}`}>
-                          <div className={`minor-filter-title ${minorItem?.type === "name" ? "dot-icon" : ""}`}>
-                            {minorItem?.type !== "name" && (
-                              <span
-                                className='toggle-icon'
-                                onClick={() => {
-                                  if (minorItem?.type === "name") return;
-                                  handleOpen("minor", mainIndex, subIndex, minorIndex);
+                    {/* s : 소분류 (없을때는 name 출력, 있을때는 소분류 출력) */}
+                    <div className='minor-filter-list'>
+                      {subItem.isOpen &&
+                        subItem.children.map((minorItem, minorIndex) => (
+                          <div className='minor-filter-item' key={`${mainItem.label}-${subItem.label}-${minorItem.label}`}>
+                            <div className={`minor-filter-title ${minorItem?.type === "name" ? "dot-icon" : ""}`}>
+                              {minorItem?.type !== "name" && (
+                                <span
+                                  className='toggle-icon'
+                                  onClick={() => {
+                                    if (minorItem?.type === "name") return;
+                                    handleOpen("minor", mainIndex, subIndex, minorIndex);
+                                  }}
+                                >
+                                  {minorItem.isOpen ? "▼" : "〉"}
+                                </span>
+                              )}
+
+                              <input
+                                type='checkbox'
+                                checked={minorItem.isChecked}
+                                id={`${mainItem.label}-${subItem.label}-${minorItem.label}`}
+                                ref={(el) => {
+                                  if (!el) return;
+                              
+                                  if (minorItem.type !== "name" && minorItem.children?.length > 0) {
+                                    const allChecked = minorItem.children.every(final => final.isChecked);
+                                    const someChecked = minorItem.children.some(final => final.isChecked);
+                              
+                                    el.indeterminate = someChecked && !allChecked;
+                                  } else {
+                                    el.indeterminate = false;
+                                  }
                                 }}
-                              >
-                                {minorItem.isOpen ? "▼" : "〉"}
-                              </span>
-                            )}
+                                onChange={() => {
+                                  handleCheck("minor", mainIndex, subIndex, minorIndex);
+                                }}
+                              />
+                              <label htmlFor={`${mainItem.label}-${subItem.label}-${minorItem.label}`}>
+                                {minorItem.label} {minorItem.type === "name" ? "" : `(${minorItem.children?.length})`}
+                              </label>
+                            </div>
 
-                            <input
-                              type='checkbox'
-                              checked={minorItem.isChecked}
-                              id={`${mainItem.label}-${subItem.label}-${minorItem.label}`}
-                              ref={(el) => {
-                                if (!el) return;
-                            
-                                if (minorItem.type !== "name" && minorItem.children?.length > 0) {
-                                  const allChecked = minorItem.children.every(final => final.isChecked);
-                                  const someChecked = minorItem.children.some(final => final.isChecked);
-                            
-                                  el.indeterminate = someChecked && !allChecked;
-                                } else {
-                                  el.indeterminate = false;
-                                }
-                              }}
-                              onChange={() => {
-                                handleCheck("minor", mainIndex, subIndex, minorIndex);
-                              }}
-                            />
-                            <label htmlFor={`${mainItem.label}-${subItem.label}-${minorItem.label}`}>
-                              {minorItem.label} {minorItem.type === "name" ? "" : `(${minorItem.children?.length})`}
-                            </label>
-                          </div>
-
-                          {/* s: name (소분류-name 있을 때만 출력) */}
-                          {minorItem.isOpen &&
-                            minorItem.children &&
-                            minorItem.children.map((finalItem, finalIndex) => (
-                              <div className='final-filter-item' key={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}>
-                                <div className='final-filter-title dot-icon'>
-                                  <input
-                                    type='checkbox'
-                                    checked={finalItem.isChecked}
-                                    id={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}
-                                    onChange={() => handleCheck("final", mainIndex, subIndex, minorIndex, finalIndex)}
-                                  />
-                                  <label htmlFor={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}>{finalItem.label}</label>
+                            {/* s: name (소분류-name 있을 때만 출력) */}
+                            {minorItem.isOpen &&
+                              minorItem.children &&
+                              minorItem.children.map((finalItem, finalIndex) => (
+                                <div className='final-filter-item' key={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}>
+                                  <div className='final-filter-title dot-icon'>
+                                    <input
+                                      type='checkbox'
+                                      checked={finalItem.isChecked}
+                                      id={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}
+                                      onChange={() => handleCheck("final", mainIndex, subIndex, minorIndex, finalIndex)}
+                                    />
+                                    <label htmlFor={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}>{finalItem.label}</label>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                          {/* e: name */}
-                        </div>
-                      ))}
+                              ))}
+                            {/* e: name */}
+                          </div>
+                        ))}
+                    </div>
+                    {/* e : 소분류 */}
                   </div>
-                  {/* e : 소분류 */}
-                </div>
-              ))}
+                ))}
+            </div>
+            {/* e : 중분류 */}
           </div>
-          {/* e : 중분류 */}
+        ))}
+      </div>
+
+      <div className='selected-options-wrapper'>
+        <div>선택된 옵션</div>
+        <div className='tag-wrapper'>
+          {selectedCnt} / {totalCnt} selected
         </div>
-      ))}
+        
+        
+        
+        </div>
     </div>
   );
 }

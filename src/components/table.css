@@ -1,13 +1,28 @@
 table {
   border-collapse: collapse;
-  border: 1px solid black;
+  border: 1px solid #ccc;
+  width: 100%;
+  table-layout: fixed
+}
+
+.table-header,
+.table-data {
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .table-header {
-  background-color: antiquewhite;
+  background-color: #ccc;
+  height: 40px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .table-data {
   color: #2e2e2e;
-  padding: 10px 20px;
+  padding: 5px 10px;
+  min-width: 40px;
+  font-size: 14px;
+  border-bottom: 1px solid #ccc;
 }
