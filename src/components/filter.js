@@ -3,18 +3,91 @@ import "./filter.css";
 import { useState, useEffect, useMemo } from "react";
 
 export default function FilterView({ data, onChange }) {
-  const originData = data; // 원본 데이터
-  const tree = useMemo(() => makeTree(originData), [originData]); // UI용 데이터
+  const originData = data; // 원본데이터
+  const tree = useMemo(() => makeTree(originData), [originData]);
 
-  const [openMap, setOpenMap] = useState({}); // open 상태 관리
-  const [checkedMap, setCheckedMap] = useState({}); // checked 상태 관리
+  // 트리 노드 펼침/접힘 상태: key(main>sub>minor) -> boolean
+  const [openMap, setOpenMap] = useState({});
+  // leaf 체크 상태: policyId -> boolean
+  const [checkedMap, setCheckedMap] = useState({});
 
+  // 검색어 원본/정규화 문자열 분리
+  // - 공백 여러 개 → 1개, 양끝 공백 제거, 소문자 통일
   const [searchValue, setSearchValue] = useState("");
   const normalizeSearch = (s) => (s ?? "").toString().toLowerCase().replace(/\s+/g, " ").trim();
   const normalizedSearchValue = normalizeSearch(searchValue);
   const isSearching = normalizedSearchValue.length > 0;
 
-  // 체크 여부
+  // 검색 키워드 공백 분리
+  const searchKeywords = useMemo(() => normalizedSearchValue.split(" ").filter(Boolean), [normalizedSearchValue]);
+
+  // 하이라이트 (regex 없음)
+  const highlightLabel = (label) => {
+    if (!isSearching || searchKeywords.length === 0) return label;
+
+    const text = String(label);
+    const lowerText = text.toLowerCase();
+
+    const result = [];
+    let lastIndex = 0;
+
+    // 모든 토큰 매칭 위치 수집
+    const matches = [];
+
+    searchKeywords.forEach((kw) => {
+      const keyword = kw.toLowerCase();
+      let idx = lowerText.indexOf(keyword);
+
+      while (idx !== -1) {
+        matches.push({
+          start: idx,
+          end: idx + keyword.length,
+        });
+
+        idx = lowerText.indexOf(keyword, idx + 1);
+      }
+    });
+
+    // start 기준 정렬 + 겹침 제거
+    matches.sort((a, b) => a.start - b.start);
+
+    let merged = [];
+    matches.forEach((m) => {
+      const last = merged[merged.length - 1];
+
+      if (!last || m.start > last.end) {
+        merged.push(m);
+      } else {
+        last.end = Math.max(last.end, m.end);
+      }
+    });
+
+    // 문자열 쪼개서 JSX 생성
+    merged.forEach((m, i) => {
+      if (lastIndex < m.start) {
+        result.push(<span key={`t-${i}-n`}>{text.slice(lastIndex, m.start)}</span>);
+      }
+
+      // 클래스 지정 후 하이라이트 처리
+      result.push(
+        <span key={`t-${i}-h`} className='search-highlight'>
+          {text.slice(m.start, m.end)}
+        </span>
+      );
+
+      lastIndex = m.end;
+    });
+
+    if (lastIndex < text.length) {
+      result.push(<span key='last'>{text.slice(lastIndex)}</span>);
+    }
+
+    return result;
+  };
+
+  // 노드 전체 체크 여부
+  // - leaf(name): checkedMap 기준
+  // - 비-leaf: 자식이 전부 체크되어야 true
   const isChecked = (node) => {
     if (node.type === "name") {
       return !!checkedMap[node.policyId];
@@ -23,7 +96,8 @@ export default function FilterView({ data, onChange }) {
     return node.children.every(isChecked);
   };
 
-  //isIndeterminate (부분체크) 여부
+  // 부분 체크(indeterminate) 여부
+  // 자식 중 일부만 체크된 상태이면 true (checkbox의 indeterminate UI)
   const isIndeterminate = (node) => {
     if (!node.children) return false;
 
@@ -32,7 +106,7 @@ export default function FilterView({ data, onChange }) {
     return checked > 0 && checked < node.children.length;
   };
 
-  // 리프 노드 체크 상태 토글
+  // leaf(name) 단일 토글
   const handleCheckLeaf = (policyId) => {
     setCheckedMap((prev) => ({
       ...prev,
@@ -40,7 +114,7 @@ export default function FilterView({ data, onChange }) {
     }));
   };
 
-  // 리프 노드가 아닌 노드 체크 변경
+  // 그룹(main/sub/minor) 체크 변경 및 하위 leaf까지 체크 전파
   const handleCheck = (node, checked) => {
     const newMap = { ...checkedMap };
 
@@ -56,7 +130,7 @@ export default function FilterView({ data, onChange }) {
     setCheckedMap(newMap);
   };
 
-  // open 상태 토글
+  // key(main>sub>minor) 단위 open 상태 토글
   const handleToggle = (key) => {
     setOpenMap((prev) => ({
       ...prev,
@@ -64,6 +138,10 @@ export default function FilterView({ data, onChange }) {
     }));
   };
 
+  // 검색어 기반 트리 필터링 버전 계산
+  // - leaf: label.includes(keyword)면 통과
+  // - 중간 노드(main/sub/minor): label 매칭 시 하위 전체 노출
+  // - 그 외: 자식 중 통과 노드만 남겨 노출
   const filteredTree = useMemo(() => {
     const normalize = normalizeSearch;
     const keyword = normalizedSearchValue;
@@ -77,11 +155,11 @@ export default function FilterView({ data, onChange }) {
 
       const isMatch = normalize(node.label).includes(keyword);
 
-      // 검색 노드 찾기
+      // 중간 노드 label 매칭 시 하위 전체 노출
       if (isMatch) {
         return node;
       }
-      // 하위 노드 필터링- null 아닌 값 찾기
+      // 하위 매칭 노드만 남김
       const children = node.children.map(filterNode).filter(Boolean);
 
       if (children.length > 0) {
@@ -94,16 +172,25 @@ export default function FilterView({ data, onChange }) {
     return tree.map(filterNode).filter(Boolean);
   }, [tree, normalizedSearchValue]);
 
+  // 현재 체크된 leaf 개수(하단 summary 표시용)
   const selectedCnt = Object.values(checkedMap).filter(Boolean).length;
 
-  // 노드 식별용 키 생성 (main>sub>minor>name)
+  // openMap 키: 라벨 기반 경로 "main>sub>minor" 형태 처리
   const getKey = (...args) => {
     return args.join(">");
   };
 
-  // 체크된 노드 태그로 생성
+  // 하단 "선택된 옵션" 태그 만들기:
+  // - leaf 체크는 개별 태그로
+  // - 그룹 노드가 "전체 체크"면 하위 leaf들을 묶어서 all(...) 태그로 (중복 노출 방지)
   const getTags = (nodes, path = []) => {
     const tags = [];
+
+    // 그룹 노드 하위의 leaf policyId를 전부 수집합니다.
+    const getLeafPolicyIds = (n) => {
+      if (n.type === "name") return [n.policyId];
+      return n.children.flatMap(getLeafPolicyIds);
+    };
 
     nodes.forEach((node) => {
       // leaf 노드
@@ -111,6 +198,7 @@ export default function FilterView({ data, onChange }) {
         if (checkedMap[node.policyId]) {
           tags.push({
             label: [...path, node.label].join(" > "),
+            policyIds: [node.policyId],
           });
         }
         return;
@@ -119,8 +207,12 @@ export default function FilterView({ data, onChange }) {
       const allChecked = node.children.every(isChecked);
 
       if (allChecked) {
+        // all 태그는 "해당 그룹 하위 leaf 전체"를 대표하므로,
+        // 삭제(X) 클릭 시 하위 leaf를 한 번에 해제할 수 있도록 policyIds를 담습니다.
+        const policyIds = getLeafPolicyIds(node).filter((id) => checkedMap[id]);
         tags.push({
           label: `${[...path, node.label].join(" > ")} : all (${node.leafCount})`,
+          policyIds,
         });
         return; // 여기서 하위 안 내려감 (중복 방지)
       }
@@ -132,14 +224,28 @@ export default function FilterView({ data, onChange }) {
     return tags;
   };
 
+  // 렌더 시 checkedMap 기준 태그 계산
   const selectedTags = getTags(tree);
 
-  // 체크 상태가 변할때만 호출
+  // 태그 X 클릭 시 대표 policyId 해제 처리
+  const handleRemoveTag = (policyIds) => {
+    setCheckedMap((prev) => {
+      const next = { ...prev };
+      policyIds.forEach((id) => {
+        next[id] = false;
+      });
+      return next;
+    });
+  };
+
+  // 외부(App)로 체크된 policyId 리스트 전달
   useEffect(() => {
     const ids = Object.keys(checkedMap).filter((k) => checkedMap[k]);
     onChange?.(ids);
   }, [checkedMap, onChange]);
 
+  // 검색 결과 노출용 자동 open 처리
+  // - 검색어 매칭 leaf의 경로(main/sub/minor)를 openMap에 자동 표시
   useEffect(() => {
     if (!searchValue.trim()) {
       setOpenMap({});
@@ -177,10 +283,11 @@ export default function FilterView({ data, onChange }) {
     setOpenMap(newOpenMap);
   }, [searchValue, tree]);
 
-  // 트리 생성 (UI 표시 용)
+  // 트리 구조로 데이터 변환
   function makeTree(data) {
     const mainMap = new Map();
 
+    // leaf 노드 생성 (name/label + policyId, leafCount=1 시작)
     const makeLeaf = (item) => ({
       label: item.name,
       type: "name",
@@ -191,6 +298,7 @@ export default function FilterView({ data, onChange }) {
     data.forEach((item) => {
       const { main, sub, minor } = item;
 
+      // main 노드 생성/조회
       if (!mainMap.has(main)) {
         mainMap.set(main, {
           label: main,
@@ -201,6 +309,7 @@ export default function FilterView({ data, onChange }) {
 
       const mainNode = mainMap.get(main);
 
+      // sub 노드 생성/조회
       let subNode = mainNode.children.find((c) => c.label === sub);
 
       if (!subNode) {
@@ -214,6 +323,7 @@ export default function FilterView({ data, onChange }) {
 
       let minorNode;
 
+      // minor 유무에 따른 leaf 연결 위치 결정 (minor 하위 또는 sub 직하)
       if (minor) {
         minorNode = subNode.children.find((c) => c.label === minor);
 
@@ -232,7 +342,7 @@ export default function FilterView({ data, onChange }) {
       }
     });
 
-    // ⭐ leafCount immutable 계산
+    // 각 그룹 노드 leafCount(하위 leaf 개수) 계산
     const addCount = (node) => {
       if (node.type === "name") return 1;
 
@@ -244,8 +354,6 @@ export default function FilterView({ data, onChange }) {
     const tree = Array.from(mainMap.values());
 
     tree.forEach(addCount);
-
-    console.log(tree);
 
     return tree;
   }
@@ -279,7 +387,7 @@ export default function FilterView({ data, onChange }) {
               />
 
               <label htmlFor={mainCheckboxId}>
-                {main.label} ({main.leafCount})
+                {highlightLabel(main.label)} ({main.leafCount})
               </label>
             </div>
 
@@ -310,7 +418,7 @@ export default function FilterView({ data, onChange }) {
                         />
 
                         <label htmlFor={subCheckboxId}>
-                          {sub.label} ({sub.leafCount})
+                          {highlightLabel(sub.label)} ({sub.leafCount})
                         </label>
                       </div>
 
@@ -325,7 +433,7 @@ export default function FilterView({ data, onChange }) {
                                 <li key={minor.policyId} className='final-filter-item'>
                                   <div className='dot-icon'>
                                     <input id={leafCheckboxId} type='checkbox' checked={!!checkedMap[minor.policyId]} onChange={() => handleCheckLeaf(minor.policyId)} />
-                                    <label htmlFor={leafCheckboxId}>{minor.label}</label>
+                                    <label htmlFor={leafCheckboxId}>{highlightLabel(minor.label)}</label>
                                   </div>
                                 </li>
                               );
@@ -354,7 +462,7 @@ export default function FilterView({ data, onChange }) {
                                   />
 
                                   <label htmlFor={minorCheckboxId}>
-                                    {minor.label} ({minor.children?.length})
+                                    {highlightLabel(minor.label)} ({minor.children?.length})
                                   </label>
                                 </div>
 
@@ -366,7 +474,7 @@ export default function FilterView({ data, onChange }) {
                                       return (
                                         <div key={final.policyId} className='dot-icon'>
                                           <input id={finalCheckboxId} type='checkbox' checked={!!checkedMap[final.policyId]} onChange={() => handleCheckLeaf(final.policyId)} />
-                                          <label htmlFor={finalCheckboxId}>{final.label}</label>
+                                          <label htmlFor={finalCheckboxId}>{highlightLabel(final.label)}</label>
                                         </div>
                                       );
                                     })}
@@ -397,6 +505,9 @@ export default function FilterView({ data, onChange }) {
           {selectedTags.map((tag, i) => (
             <div key={i} className='tag-item'>
               {tag.label}
+              <span className='tag-item-icon' role='button' tabIndex={0} onClick={() => handleRemoveTag(tag.policyIds)}>
+                ×
+              </span>
             </div>
           ))}
         </div>
