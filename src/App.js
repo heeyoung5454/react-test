@@ -36,8 +36,13 @@ function App() {
       console.error("localStorage 오류");
     }
 
-    const filtered = testData.filter((item) => checkedPolicyIds.includes(item.policyId));
+    // 선택 0개 상태의 전체 데이터 복원
+    if (!checkedPolicyIds.length) {
+      setTableData(testData);
+      return;
+    }
 
+    const filtered = testData.filter((item) => checkedPolicyIds.includes(item.policyId));
     setTableData(filtered);
   }, []);
 

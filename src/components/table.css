@@ -2,7 +2,7 @@ table {
   border-collapse: collapse;
   border: 1px solid #ccc;
   width: 100%;
-  table-layout: fixed
+  table-layout: fixed;
 }
 
 .table-header,
@@ -20,6 +20,7 @@ table {
 }
 
 .table-data {
+  text-align: center;
   color: #2e2e2e;
   padding: 5px 10px;
   min-width: 40px;
