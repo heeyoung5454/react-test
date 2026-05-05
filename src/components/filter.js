@@ -2,14 +2,21 @@ import "./filter.css";
 
 import { useState, useEffect, useMemo } from "react";
 
-export default function FilterView({ data, onChange }) {
+export default function FilterView({ data, defaultCheckedIds = [], onChange }) {
   const originData = data; // 원본데이터
   const tree = useMemo(() => makeTree(originData), [originData]);
 
   // 트리 노드 펼침/접힘 상태: key(main>sub>minor) -> boolean
   const [openMap, setOpenMap] = useState({});
   // leaf 체크 상태: policyId -> boolean
-  const [checkedMap, setCheckedMap] = useState({});
+  const [checkedMap, setCheckedMap] = useState(() => {
+    // defaultCheckedIds 기반 초기 checkedMap 구성
+    const map = {};
+    (defaultCheckedIds ?? []).forEach((id) => {
+      map[id] = true;
+    });
+    return map;
+  });
 
   // 검색어 원본/정규화 문자열 분리
   // - 공백 여러 개 → 1개, 양끝 공백 제거, 소문자 통일
