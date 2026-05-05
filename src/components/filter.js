@@ -1,595 +1,402 @@
 import "./filter.css";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 export default function FilterView({ data, onChange }) {
-  const [treeData, setTreeData] = useState(makeTree(data));
+  const originData = data; // 원본 데이터
+  const tree = useMemo(() => makeTree(originData), [originData]); // UI용 데이터
 
-  const [selectedCnt, setSelectedCnt] = useState(0);
-  const [selectedOptions, setSelectedOptions] = useState([]);
+  const [openMap, setOpenMap] = useState({}); // open 상태 관리
+  const [checkedMap, setCheckedMap] = useState({}); // checked 상태 관리
 
-  const totalCnt = data.length;
+  const [searchValue, setSearchValue] = useState("");
+  const normalizeSearch = (s) => (s ?? "").toString().toLowerCase().replace(/\s+/g, " ").trim();
+  const normalizedSearchValue = normalizeSearch(searchValue);
+  const isSearching = normalizedSearchValue.length > 0;
 
+  // 체크 여부
+  const isChecked = (node) => {
+    if (node.type === "name") {
+      return !!checkedMap[node.policyId];
+    }
+
+    return node.children.every(isChecked);
+  };
+
+  //isIndeterminate (부분체크) 여부
+  const isIndeterminate = (node) => {
+    if (!node.children) return false;
+
+    const checked = node.children.filter(isChecked).length;
+    // 1개 이상 체크, 전체 체크 아닐 경우
+    return checked > 0 && checked < node.children.length;
+  };
+
+  // 리프 노드 체크 상태 토글
+  const handleCheckLeaf = (policyId) => {
+    setCheckedMap((prev) => ({
+      ...prev,
+      [policyId]: !prev[policyId],
+    }));
+  };
+
+  // 리프 노드가 아닌 노드 체크 변경
+  const handleCheck = (node, checked) => {
+    const newMap = { ...checkedMap };
+
+    const dfs = (n) => {
+      if (n.type === "name") {
+        newMap[n.policyId] = checked;
+        return;
+      }
+      n.children.forEach(dfs);
+    };
+
+    dfs(node);
+    setCheckedMap(newMap);
+  };
+
+  // open 상태 토글
+  const handleToggle = (key) => {
+    setOpenMap((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const filteredTree = useMemo(() => {
+    const normalize = normalizeSearch;
+    const keyword = normalizedSearchValue;
+    if (!keyword) return tree;
+
+    const filterNode = (node) => {
+      // 마지막 노드(name)인 경우
+      if (node.type === "name") {
+        return normalize(node.label).includes(keyword) ? node : null;
+      }
+
+      const isMatch = normalize(node.label).includes(keyword);
+
+      // 검색 노드 찾기
+      if (isMatch) {
+        return node;
+      }
+      // 하위 노드 필터링- null 아닌 값 찾기
+      const children = node.children.map(filterNode).filter(Boolean);
+
+      if (children.length > 0) {
+        return { ...node, children };
+      }
+
+      return null;
+    };
+
+    return tree.map(filterNode).filter(Boolean);
+  }, [tree, normalizedSearchValue]);
+
+  const selectedCnt = Object.values(checkedMap).filter(Boolean).length;
+
+  // 노드 식별용 키 생성 (main>sub>minor>name)
+  const getKey = (...args) => {
+    return args.join(">");
+  };
+
+  // 체크된 노드 태그로 생성
+  const getTags = (nodes, path = []) => {
+    const tags = [];
+
+    nodes.forEach((node) => {
+      // leaf 노드
+      if (node.type === "name") {
+        if (checkedMap[node.policyId]) {
+          tags.push({
+            label: [...path, node.label].join(" > "),
+          });
+        }
+        return;
+      }
+
+      const allChecked = node.children.every(isChecked);
+
+      if (allChecked) {
+        tags.push({
+          label: `${[...path, node.label].join(" > ")} : all (${node.leafCount})`,
+        });
+        return; // 여기서 하위 안 내려감 (중복 방지)
+      }
+
+      // 일부만 체크 - 내려감
+      tags.push(...getTags(node.children, [...path, node.label]));
+    });
+
+    return tags;
+  };
+
+  const selectedTags = getTags(tree);
+
+  // 체크 상태가 변할때만 호출
+  useEffect(() => {
+    const ids = Object.keys(checkedMap).filter((k) => checkedMap[k]);
+    onChange?.(ids);
+  }, [checkedMap, onChange]);
+
+  useEffect(() => {
+    if (!searchValue.trim()) {
+      setOpenMap({});
+      return;
+    }
+
+    const normalize = (s) => (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+
+    const keyword = normalize(searchValue);
+    const newOpenMap = {};
+
+    const markPath = (path) => {
+      // main, sub, minor 모두 open 처리
+      path.forEach((_, idx) => {
+        const key = getKey(...path.slice(0, idx + 1));
+        newOpenMap[key] = true;
+      });
+    };
+
+    const dfs = (node, path = []) => {
+      const currentPath = [...path, node.label];
+
+      if (node.type === "name") {
+        if (normalize(node.label).includes(keyword)) {
+          markPath(currentPath);
+        }
+        return;
+      }
+
+      node.children.forEach((child) => dfs(child, currentPath));
+    };
+
+    tree.forEach((node) => dfs(node));
+
+    setOpenMap(newOpenMap);
+  }, [searchValue, tree]);
+
+  // 트리 생성 (UI 표시 용)
   function makeTree(data) {
     const mainMap = new Map();
 
-    data.forEach((item) => {
-      const { main, sub, minor, name, policyId } = item;
+    const makeLeaf = (item) => ({
+      label: item.name,
+      type: "name",
+      policyId: item.policyId,
+      leafCount: 1,
+    });
 
-      // 1. 대분류
+    data.forEach((item) => {
+      const { main, sub, minor } = item;
+
       if (!mainMap.has(main)) {
         mainMap.set(main, {
           label: main,
+          type: "main",
           children: [],
-          subMap: new Map(),
         });
       }
 
       const mainNode = mainMap.get(main);
 
-      // 2. 중분류
-      if (!mainNode.subMap.has(sub)) {
-        mainNode.subMap.set(sub, {
+      let subNode = mainNode.children.find((c) => c.label === sub);
+
+      if (!subNode) {
+        subNode = {
           label: sub,
+          type: "sub",
           children: [],
-          minorMap: new Map(),
-        });
-        mainNode.children.push(mainNode.subMap.get(sub));
+        };
+        mainNode.children.push(subNode);
       }
 
-      const subNode = mainNode.subMap.get(sub);
+      let minorNode;
 
-      // 3. 소분류 (있을 때만)
       if (minor) {
-        if (!subNode.minorMap.has(minor)) {
-          subNode.minorMap.set(minor, {
+        minorNode = subNode.children.find((c) => c.label === minor);
+
+        if (!minorNode) {
+          minorNode = {
             label: minor,
+            type: "minor",
             children: [],
-            isOpen: false,
-            isChecked: false,
-          });
-          subNode.children.push(subNode.minorMap.get(minor));
+          };
+          subNode.children.push(minorNode);
         }
 
-        // 소분류에 항목(name)
-        subNode.minorMap.get(minor).children.push({
-          label: name,
-          type: "name",
-          policyId,
-          isChecked: false,
-        });
+        minorNode.children.push(makeLeaf(item));
       } else {
-        // 소분류 없으면 바로 name 추가
-        subNode.children.push({
-          type: "name",
-          label: name,
-          policyId,
-          isChecked: false,
-        });
+        subNode.children.push(makeLeaf(item));
       }
     });
 
-    // 내부 Map 제거 (UI용으로 정리)
-    return Array.from(mainMap.values()).map((main) => ({
-      label: main.label,
-      isOpen: false,
-      isChecked: false,
-      children: main.children.map((sub) => ({
-        label: sub.label,
-        isChecked: false,
-        children: sub.children,
-        isOpen: false,
-      })),
-    }));
-  }
+    // ⭐ leafCount immutable 계산
+    const addCount = (node) => {
+      if (node.type === "name") return 1;
 
-  // 토글 on/off
-  const handleOpen = (type, mainIndex, subIndex, minorIndex) => {
-    // 대분류 토글
-    if (type === "main") {
-      setTreeData((items) => {
-        return items.map((main, i) => (i === mainIndex ? { ...main, isOpen: !main.isOpen } : main));
-      });
-
-      return;
-    }
-
-    // 중분류 토글
-    if (type === "sub") {
-      setTreeData((items) => {
-        return items.map((main, i) => {
-          if (i !== mainIndex) return main;
-
-          return {
-            ...main,
-            children: main.children.map((sub, j) => (j === subIndex ? { ...sub, isOpen: !sub.isOpen } : sub)),
-          };
-        });
-      });
-      return;
-    }
-
-    // 소분류 토글
-    if (type === "minor") {
-      setTreeData((items) => {
-        return items.map((main, i) => {
-          if (i !== mainIndex) return main;
-
-          return {
-            ...main,
-            children: main.children.map((sub, j) => {
-              if (j !== subIndex) return sub;
-
-              return {
-                ...sub,
-                children: sub.children.map((minor, k) => (k === minorIndex ? { ...minor, isOpen: !minor.isOpen } : minor)),
-              };
-            }),
-          };
-        });
-      });
-      return;
-    }
-  };
-
-  // 체크박스 선택/해제 (토글)
-  const handleCheck = (type, mainIndex, subIndex, minorIndex, finalIndex, checked) => {
-    // 대분류 선택
-    if (type === "main") {
-      setTreeData((items) => {
-        return items.map((main, i) => {
-          if (i !== mainIndex) return main;
-
-          const nextIsChecked = checked ?? !main.isChecked;
-
-          return {
-            ...main,
-            isChecked: nextIsChecked,
-
-            children: main.children.map((sub) => {
-              return {
-                ...sub,
-                isChecked: nextIsChecked,
-                children: sub.children.map((minor) => {
-                  return {
-                    ...minor,
-                    isChecked: nextIsChecked,
-                    // minor.childen이 존재할 경우
-                    children: minor.children?.map((final) => {
-                      return {
-                        ...final,
-                        isChecked: nextIsChecked,
-                      };
-                    }),
-                  };
-                }),
-              };
-            }),
-          };
-        });
-      });
-      return;
-    }
-
-    // 중분류 선택
-    if (type === "sub") {
-      setTreeData((items) =>
-        items.map((main, i) => {
-          if (i !== mainIndex) return main;
-
-          // 1. sub 체크
-          const updatedSubs = main.children.map((sub, j) => {
-            if (j !== subIndex) return sub;
-
-            const nextIsChecked = checked ?? !sub.isChecked;
-
-            return {
-              ...sub,
-              isChecked: nextIsChecked,
-              children: sub.children.map((minor) => ({
-                ...minor,
-                isChecked: nextIsChecked,
-                // minor.childen이 존재할 경우
-                children: minor.children?.map((final) => {
-                  return {
-                    ...final,
-                    isChecked: nextIsChecked,
-                  };
-                }),
-              })),
-            };
-          });
-
-          // 2. main 체크
-          const mainAllChecked = updatedSubs.every((sub) => sub.isChecked);
-
-          return {
-            ...main,
-            isChecked: mainAllChecked,
-            children: updatedSubs,
-          };
-        })
-      );
-      return;
-    }
-
-    // 소분류 선택
-    if (type === "minor") {
-      setTreeData((items) =>
-        items.map((main, i) => {
-          if (i !== mainIndex) return main;
-
-          // 1. sub 체크
-          const updatedSubs = main.children.map((sub, j) => {
-            if (j !== subIndex) return sub;
-
-            // 1-1. minor 체크
-            const updatedMinors = sub.children.map((minor, k) => {
-              if (k !== minorIndex) return minor;
-
-              const nextIsChecked = checked ?? !minor.isChecked;
-
-              return {
-                ...minor,
-                isChecked: nextIsChecked,
-                // minor.childen이 존재할 경우
-                children: minor.children?.map((final) => {
-                  return {
-                    ...final,
-                    isChecked: nextIsChecked,
-                  };
-                }),
-              };
-            });
-
-            // 1-2. sub 체크
-            const subAllChecked = updatedMinors.every((minor) => minor.isChecked);
-
-            return {
-              ...sub,
-              isChecked: subAllChecked,
-              children: updatedMinors,
-            };
-          });
-
-          // 2. main 체크
-          const mainAllChecked = updatedSubs.every((sub) => sub.isChecked);
-
-          return {
-            ...main,
-            isChecked: mainAllChecked,
-            children: updatedSubs,
-          };
-        })
-      );
-      return;
-    }
-
-    if (type === "final") {
-      setTreeData((items) =>
-        items.map((main, i) => {
-          if (i !== mainIndex) return main;
-
-          const updatedSubs = main.children.map((sub, j) => {
-            if (j !== subIndex) return sub;
-
-            const updatedMinors = sub.children.map((minor, k) => {
-              if (k !== minorIndex) return minor;
-
-              const updatedFinals = minor.children.map((final, l) => {
-                if (l !== finalIndex) return final;
-
-                const nextIsChecked = checked ?? !final.isChecked;
-
-                return { ...final, isChecked: nextIsChecked };
-              });
-
-              // minor 체크
-              const minorAllChecked = updatedFinals.every((final) => final.isChecked);
-
-              return {
-                ...minor,
-                children: updatedFinals,
-                isChecked: minorAllChecked,
-              };
-            });
-
-            // sub 체크
-            const subAllChecked = updatedMinors.every((m) => m.isChecked);
-
-            return {
-              ...sub,
-              children: updatedMinors,
-              isChecked: subAllChecked,
-            };
-          });
-
-          // main 체크
-          const mainAllChecked = updatedSubs.every((sub) => sub.isChecked);
-
-          return {
-            ...main,
-            children: updatedSubs,
-            isChecked: mainAllChecked,
-          };
-        })
-      );
-      return;
-    }
-  };
-
-  // 선택된 옵션 삭제 (=체크박스 해제)
-  const handleRemoveItem = (index) => {
-    if (index.finalIndex !== undefined) {
-      handleCheck("final", index.mainIndex, index.subIndex, index.minorIndex, index.finalIndex);
-      return;
-    }
-
-    if (index.minorIndex !== undefined) {
-      handleCheck("minor", index.mainIndex, index.subIndex, index.minorIndex);
-      return;
-    }
-
-    if (index.subIndex !== undefined) {
-      handleCheck("sub", index.mainIndex, index.subIndex);
-      return;
-    }
-
-    if (index.mainIndex !== undefined) {
-      handleCheck("main", index.mainIndex);
-      return;
-    }
-  };
-
-  // 하위 값이 모두 체크되어있는지 확인
-  function isAllChecked(nodes) {
-    return nodes.every((n) => {
-      if (n.children) {
-        return isAllChecked(n.children);
-      }
-      return n.isChecked;
-    });
-  }
-
-  useEffect(() => {
-    // useEffect 안에서만 쓰는 함수는 안으로 넣는다 (컴포넌트 내부 함수라서 렌더링마다 새로 생성됨)
-    const getCheckedPolicyIds = (tree) => {
-      let result = [];
-
-      tree.forEach((node) => {
-        if (node.type === "name" && node.isChecked) {
-          result.push(node.policyId);
-        }
-
-        if (node.children) {
-          result = result.concat(getCheckedPolicyIds(node.children));
-        }
-      });
-
-      return result;
+      const sum = node.children.reduce((acc, c) => acc + addCount(c), 0);
+      node.leafCount = sum;
+      return sum;
     };
 
-    const getSelectedTags = (tree) => {
-      const tags = [];
+    const tree = Array.from(mainMap.values());
 
-      tree.forEach((main, mainIndex) => {
-        const mainAllChecked = isAllChecked(main.children);
+    tree.forEach(addCount);
 
-        if (mainAllChecked) {
-          tags.push({
-            label: `${main.label} : all(${main.children.length})`,
-            key: main.label,
-            index: { mainIndex: mainIndex },
-          });
-          return;
-        }
+    console.log(tree);
 
-        main.children.forEach((sub, subIndex) => {
-          const subAllChecked = isAllChecked(sub.children);
-
-          if (subAllChecked) {
-            tags.push({
-              label: `${main.label} > ${sub.label} : all(${sub.children.length})`,
-              key: `${main.label}-${sub.label}`,
-              index: { mainIndex, subIndex },
-            });
-            return;
-          }
-
-          sub.children.forEach((minor, minorIndex) => {
-            // name 타입이면 바로 leaf
-            if (minor.type === "name") {
-              if (minor.isChecked) {
-                tags.push({
-                  label: `${main.label} > ${sub.label} > ${minor.label} (1)`,
-                  key: `${main.label}-${sub.label}-${minor.label}-${minor.policyId}`,
-                  index: { mainIndex, subIndex, minorIndex },
-                });
-              }
-              return;
-            }
-
-            const minorAllChecked = isAllChecked(minor.children);
-
-            if (minorAllChecked) {
-              tags.push({
-                label: `${main.label} > ${sub.label} > ${minor.label} : all(${minor.children.length})`,
-                key: `${main.label}-${sub.label}-${minor.label}`,
-                index: { mainIndex, subIndex, minorIndex },
-              });
-              return;
-            }
-
-            // 일부 선택 final까지 내려감
-            minor.children.forEach((final, finalIndex) => {
-              if (final.isChecked) {
-                tags.push({
-                  label: `${main.label} > ${sub.label} > ${minor.label} > ${final.label}`,
-                  key: `${main.label}-${sub.label}-${minor.label}-${final.label}`,
-                  index: { mainIndex, subIndex, minorIndex, finalIndex },
-                });
-              }
-            });
-          });
-        });
-      });
-
-      return tags;
-    };
-
-    // 선택된 옵션 ID 리스트 만들기
-    const ids = getCheckedPolicyIds(treeData);
-    onChange?.(ids);
-    setSelectedCnt(ids.length);
-
-    // 선택된 옵션 태그 리스트 만들기
-    const tags = getSelectedTags(treeData);
-    setSelectedOptions(tags);
-  }, [treeData, onChange]);
+    return tree;
+  }
 
   return (
     <div>
-      <div>
-        {treeData.map((mainItem, mainIndex) => (
-          <div className='main-filter-item' key={mainItem.label}>
-            {/* s : 대분류 */}
+      <input className='search-input' value={searchValue} onChange={(e) => setSearchValue(e.target.value)} />
+
+      {filteredTree.map((main) => {
+        const mainKey = getKey(main.label);
+        const mainCheckboxId = `filter-main-${mainKey}`;
+        const mainOpen = isSearching || !!openMap[mainKey];
+
+        return (
+          <div key={mainKey} className='main-filter-item'>
+            {/* MAIN */}
             <div className='main-filter-title'>
-              <span className='toggle-icon' onClick={() => handleOpen("main", mainIndex)}>
-                {mainItem.isOpen ? "▼" : "〉"}
+              <span className='toggle-icon' onClick={() => handleToggle(mainKey)}>
+                {mainOpen ? "▼" : "〉"}
               </span>
+
               <input
+                id={mainCheckboxId}
                 type='checkbox'
-                checked={mainItem.children.every((sub) => sub.isChecked)}
-                id={mainItem.label}
+                checked={isChecked(main)}
                 ref={(el) => {
                   if (!el) return;
-
-                  const allChecked = mainItem.children.every((sub) => sub.isChecked);
-                  const someChecked = mainItem.children.some((sub) => sub.isChecked);
-
-                  el.indeterminate = someChecked && !allChecked;
+                  el.indeterminate = isIndeterminate(main);
                 }}
-                onChange={() => handleCheck("main", mainIndex)}
+                onChange={(e) => handleCheck(main, e.target.checked)}
               />
-              <label htmlFor={mainItem.label}>
-                {mainItem.label} ({mainItem.children.length})
+
+              <label htmlFor={mainCheckboxId}>
+                {main.label} ({main.leafCount})
               </label>
             </div>
-            {/* e : 대분류 */}
 
-            {/* s : 중분류 */}
-            <div className='sub-filter-list'>
-              {mainItem.isOpen &&
-                mainItem.children.map((subItem, subIndex) => (
-                  <div className='sub-filter-item' key={`${mainItem.label}-${subItem.label}`}>
-                    <div className='sub-filter-title'>
-                      <input
-                        type='checkbox'
-                        checked={subItem.children.every((minor) => minor.isChecked)}
-                        id={`${mainItem.label}-${subItem.label}`}
-                        ref={(el) => {
-                          if (!el) return;
+            {/* SUB */}
+            {mainOpen && (
+              <ul className='sub-filter-list'>
+                {main.children.map((sub) => {
+                  const subKey = getKey(main.label, sub.label);
+                  const subCheckboxId = `filter-sub-${subKey}`;
+                  const subOpen = isSearching || !!openMap[subKey];
 
-                          const allChecked = subItem.children.every((minor) => minor.isChecked);
-                          const someChecked = subItem.children.some((minor) => minor.isChecked);
+                  return (
+                    <li key={subKey} className='sub-filter-item'>
+                      <div className='sub-filter-title'>
+                        <span className='toggle-icon' onClick={() => handleToggle(subKey)}>
+                          {subOpen ? "▼" : "〉"}
+                        </span>
 
-                          el.indeterminate = someChecked && !allChecked;
-                        }}
-                        onChange={() => handleCheck("sub", mainIndex, subIndex)}
-                      />
-                      <label htmlFor={`${mainItem.label}-${subItem.label}`}>
-                        {subItem.label} ({subItem.children.length})
-                      </label>
-                      <span className='toggle-icon' onClick={() => handleOpen("sub", mainIndex, subIndex)}>
-                        {subItem.isOpen ? "▼" : "〉"}
-                      </span>
-                    </div>
+                        <input
+                          id={subCheckboxId}
+                          type='checkbox'
+                          checked={isChecked(sub)}
+                          ref={(el) => {
+                            if (!el) return;
+                            el.indeterminate = isIndeterminate(sub);
+                          }}
+                          onChange={(e) => handleCheck(sub, e.target.checked)}
+                        />
 
-                    {/* s : 소분류 (없을때는 name 출력, 있을때는 소분류 출력) */}
-                    <div className='minor-filter-list'>
-                      {subItem.isOpen &&
-                        subItem.children.map((minorItem, minorIndex) => (
-                          <div className='minor-filter-item' key={`${mainItem.label}-${subItem.label}-${minorItem.label}`}>
-                            <div className={`minor-filter-title ${minorItem?.type === "name" ? "dot-icon" : ""}`}>
-                              {minorItem?.type !== "name" && (
-                                <span
-                                  className='toggle-icon'
-                                  onClick={() => {
-                                    if (minorItem?.type === "name") return;
-                                    handleOpen("minor", mainIndex, subIndex, minorIndex);
-                                  }}
-                                >
-                                  {minorItem.isOpen ? "▼" : "〉"}
-                                </span>
-                              )}
+                        <label htmlFor={subCheckboxId}>
+                          {sub.label} ({sub.leafCount})
+                        </label>
+                      </div>
 
-                              <input
-                                type='checkbox'
-                                checked={minorItem.isChecked}
-                                id={`${mainItem.label}-${subItem.label}-${minorItem.label}`}
-                                ref={(el) => {
-                                  if (!el) return;
-
-                                  if (minorItem.type !== "name" && minorItem.children?.length > 0) {
-                                    const allChecked = minorItem.children.every((final) => final.isChecked);
-                                    const someChecked = minorItem.children.some((final) => final.isChecked);
-
-                                    el.indeterminate = someChecked && !allChecked;
-                                  } else {
-                                    el.indeterminate = false;
-                                  }
-                                }}
-                                onChange={() => {
-                                  handleCheck("minor", mainIndex, subIndex, minorIndex);
-                                }}
-                              />
-                              <label htmlFor={`${mainItem.label}-${subItem.label}-${minorItem.label}`}>
-                                {minorItem.label} {minorItem.type === "name" ? "" : `(${minorItem.children?.length})`}
-                              </label>
-                            </div>
-
-                            {/* s: name (소분류-name 있을 때만 출력) */}
-                            {minorItem.isOpen &&
-                              minorItem.children &&
-                              minorItem.children.map((finalItem, finalIndex) => (
-                                <div className='final-filter-item' key={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}>
-                                  <div className='final-filter-title dot-icon'>
-                                    <input
-                                      type='checkbox'
-                                      checked={finalItem.isChecked}
-                                      id={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}
-                                      onChange={() => handleCheck("final", mainIndex, subIndex, minorIndex, finalIndex)}
-                                    />
-                                    <label htmlFor={`${mainItem.label}-${subItem.label}-${minorItem.label}-${finalItem.label}`}>{finalItem.label}</label>
+                      {/* MINOR or NAME */}
+                      {subOpen && (
+                        <ul className='minor-filter-list'>
+                          {sub.children.map((minor) => {
+                            // leaf (sub 아래 바로 name)
+                            if (minor.type === "name") {
+                              const leafCheckboxId = `filter-leaf-${minor.policyId}`;
+                              return (
+                                <li key={minor.policyId} className='final-filter-item'>
+                                  <div className='dot-icon'>
+                                    <input id={leafCheckboxId} type='checkbox' checked={!!checkedMap[minor.policyId]} onChange={() => handleCheckLeaf(minor.policyId)} />
+                                    <label htmlFor={leafCheckboxId}>{minor.label}</label>
                                   </div>
+                                </li>
+                              );
+                            }
+
+                            const minorKey = getKey(main.label, sub.label, minor.label);
+                            const minorCheckboxId = `filter-minor-${minorKey}`;
+                            const minorOpen = isSearching || !!openMap[minorKey];
+
+                            return (
+                              <li key={minorKey} className='minor-filter-item'>
+                                <div className='minor-filter-title'>
+                                  <span className='toggle-icon' onClick={() => handleToggle(minorKey)}>
+                                    {minorOpen ? "▼" : "〉"}
+                                  </span>
+
+                                  <input
+                                    id={minorCheckboxId}
+                                    type='checkbox'
+                                    checked={isChecked(minor)}
+                                    ref={(el) => {
+                                      if (!el) return;
+                                      el.indeterminate = isIndeterminate(minor);
+                                    }}
+                                    onChange={(e) => handleCheck(minor, e.target.checked)}
+                                  />
+
+                                  <label htmlFor={minorCheckboxId}>
+                                    {minor.label} ({minor.children?.length})
+                                  </label>
                                 </div>
-                              ))}
-                            {/* e: name */}
-                          </div>
-                        ))}
-                    </div>
-                    {/* e : 소분류 */}
-                  </div>
-                ))}
-            </div>
-            {/* e : 중분류 */}
+
+                                {/* FINAL */}
+                                {minorOpen && (
+                                  <div className='final-filter-item'>
+                                    {minor.children.map((final) => {
+                                      const finalCheckboxId = `filter-final-${final.policyId}`;
+                                      return (
+                                        <div key={final.policyId} className='dot-icon'>
+                                          <input id={finalCheckboxId} type='checkbox' checked={!!checkedMap[final.policyId]} onChange={() => handleCheckLeaf(final.policyId)} />
+                                          <label htmlFor={finalCheckboxId}>{final.label}</label>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
-        ))}
-      </div>
+        );
+      })}
 
       <div className='selected-options-wrapper'>
         <div className='selected-title'>선택된 옵션</div>
         <div className='tag-summary'>
-          {selectedCnt} / {totalCnt} selected
+          {" "}
+          {selectedCnt} / {originData.length} selected
         </div>
 
         <div className='tag-list-wrapper'>
-          {selectedOptions.map((option) => (
-            <div className='tag-item' key={option.key}>
-              <span className='tag-item-label'>{option.label}</span>
-              <span className='tag-item-icon' onClick={() => handleRemoveItem(option.index)}>
-                ×
-              </span>
+          {selectedTags.map((tag, i) => (
+            <div key={i} className='tag-item'>
+              {tag.label}
             </div>
           ))}
         </div>
