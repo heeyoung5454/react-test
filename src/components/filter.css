@@ -1,4 +1,3 @@
-
 .main-filter-item {
   display: flex;
   flex-direction: column;
@@ -82,23 +81,50 @@ label {
   cursor: pointer;
 }
 
-
-
-.selected-options-wrapper{
+.selected-options-wrapper {
   width: 100%;
   margin-top: 50px;
   padding: 0 10px;
+  font-size: 14px;
 }
 
-.tag-wrapper{
-  margin-top: 5px;
-  background-color: #2478FF;
+.selected-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.tag-summary {
+  margin: 15px 0;
+  background-color: #2478ff;
   color: #ffffff;
   border-radius: 25px;
   width: 150px;
   height: 30px;
   display: flex;
+  gap: 5px;
   align-items: center;
   justify-content: center;
   font-size: 14px;
+}
+
+.tag-list-wrapper {
+  border-top: 1px solid #ccc;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.tag-item {
+  font-size: 10px;
+  width: fit-content;
+  background-color: #ccc;
+  border-radius: 25px;
+  padding: 5px 10px;
+}
+
+.tag-item-icon {
+  cursor: pointer;
+  padding: 5px;
 }
