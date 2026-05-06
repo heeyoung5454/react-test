@@ -2,6 +2,92 @@ import "./filter.css";
 
 import { useState, useEffect, useMemo } from "react";
 
+// 검색어 원본/정규화 문자열 분리
+// - 공백 여러 개 → 1개, 양끝 공백 제거, 소문자 통일
+function normalizeSearch(s) {
+  return (s ?? "").toString().toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+// openMap 키: 라벨 기반 경로 "main>sub>minor" 형태 처리
+function getKey(...args) {
+  return args.join(">");
+}
+
+// 트리 구조로 데이터 변환
+function makeTree(data) {
+  const mainMap = new Map();
+
+  // leaf 노드 생성 (name/label + policyId, leafCount=1 시작)
+  const makeLeaf = (item) => ({
+    label: item.name,
+    type: "name",
+    policyId: item.policyId,
+    leafCount: 1,
+  });
+
+  data.forEach((item) => {
+    const { main, sub, minor } = item;
+
+    // main 노드 생성/조회
+    if (!mainMap.has(main)) {
+      mainMap.set(main, {
+        label: main,
+        type: "main",
+        children: [],
+      });
+    }
+
+    const mainNode = mainMap.get(main);
+
+    // sub 노드 생성/조회
+    let subNode = mainNode.children.find((c) => c.label === sub);
+
+    if (!subNode) {
+      subNode = {
+        label: sub,
+        type: "sub",
+        children: [],
+      };
+      mainNode.children.push(subNode);
+    }
+
+    let minorNode;
+
+    // minor 유무에 따른 leaf 연결 위치 결정 (minor 하위 또는 sub 직하)
+    if (minor) {
+      minorNode = subNode.children.find((c) => c.label === minor);
+
+      if (!minorNode) {
+        minorNode = {
+          label: minor,
+          type: "minor",
+          children: [],
+        };
+        subNode.children.push(minorNode);
+      }
+
+      minorNode.children.push(makeLeaf(item));
+    } else {
+      subNode.children.push(makeLeaf(item));
+    }
+  });
+
+  // 각 그룹 노드 leafCount(하위 leaf 개수) 계산
+  const addCount = (node) => {
+    if (node.type === "name") return 1;
+
+    const sum = node.children.reduce((acc, c) => acc + addCount(c), 0);
+    node.leafCount = sum;
+    return sum;
+  };
+
+  const tree = Array.from(mainMap.values());
+
+  tree.forEach(addCount);
+
+  return tree;
+}
+
 export default function FilterView({ data, defaultCheckedIds = [], onChange }) {
   const originData = data; // 원본데이터
   const tree = useMemo(() => makeTree(originData), [originData]);
@@ -18,10 +104,7 @@ export default function FilterView({ data, defaultCheckedIds = [], onChange }) {
     return map;
   });
 
-  // 검색어 원본/정규화 문자열 분리
-  // - 공백 여러 개 → 1개, 양끝 공백 제거, 소문자 통일
   const [searchValue, setSearchValue] = useState("");
-  const normalizeSearch = (s) => (s ?? "").toString().toLowerCase().replace(/\s+/g, " ").trim();
   const normalizedSearchValue = normalizeSearch(searchValue);
   const isSearching = normalizedSearchValue.length > 0;
 
@@ -182,11 +265,6 @@ export default function FilterView({ data, defaultCheckedIds = [], onChange }) {
   // 현재 체크된 leaf 개수(하단 summary 표시용)
   const selectedCnt = Object.values(checkedMap).filter(Boolean).length;
 
-  // openMap 키: 라벨 기반 경로 "main>sub>minor" 형태 처리
-  const getKey = (...args) => {
-    return args.join(">");
-  };
-
   // 하단 "선택된 옵션" 태그 만들기:
   // - leaf 체크는 개별 태그로
   // - 그룹 노드가 "전체 체크"면 하위 leaf들을 묶어서 all(...) 태그로 (중복 노출 방지)
@@ -289,81 +367,6 @@ export default function FilterView({ data, defaultCheckedIds = [], onChange }) {
 
     setOpenMap(newOpenMap);
   }, [searchValue, tree]);
-
-  // 트리 구조로 데이터 변환
-  function makeTree(data) {
-    const mainMap = new Map();
-
-    // leaf 노드 생성 (name/label + policyId, leafCount=1 시작)
-    const makeLeaf = (item) => ({
-      label: item.name,
-      type: "name",
-      policyId: item.policyId,
-      leafCount: 1,
-    });
-
-    data.forEach((item) => {
-      const { main, sub, minor } = item;
-
-      // main 노드 생성/조회
-      if (!mainMap.has(main)) {
-        mainMap.set(main, {
-          label: main,
-          type: "main",
-          children: [],
-        });
-      }
-
-      const mainNode = mainMap.get(main);
-
-      // sub 노드 생성/조회
-      let subNode = mainNode.children.find((c) => c.label === sub);
-
-      if (!subNode) {
-        subNode = {
-          label: sub,
-          type: "sub",
-          children: [],
-        };
-        mainNode.children.push(subNode);
-      }
-
-      let minorNode;
-
-      // minor 유무에 따른 leaf 연결 위치 결정 (minor 하위 또는 sub 직하)
-      if (minor) {
-        minorNode = subNode.children.find((c) => c.label === minor);
-
-        if (!minorNode) {
-          minorNode = {
-            label: minor,
-            type: "minor",
-            children: [],
-          };
-          subNode.children.push(minorNode);
-        }
-
-        minorNode.children.push(makeLeaf(item));
-      } else {
-        subNode.children.push(makeLeaf(item));
-      }
-    });
-
-    // 각 그룹 노드 leafCount(하위 leaf 개수) 계산
-    const addCount = (node) => {
-      if (node.type === "name") return 1;
-
-      const sum = node.children.reduce((acc, c) => acc + addCount(c), 0);
-      node.leafCount = sum;
-      return sum;
-    };
-
-    const tree = Array.from(mainMap.values());
-
-    tree.forEach(addCount);
-
-    return tree;
-  }
 
   return (
     <div>
