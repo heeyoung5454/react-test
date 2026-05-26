@@ -59,3 +59,19 @@ test("localStorage restore after re-render", async () => {
 
   expect(screen.getByText(/Identity & Crypto\s*>\s*Certificate Manager\s*>\s*ACM 인증서 만료일 점검/)).toBeInTheDocument();
 });
+
+// 깊은 하위 leaf 선택 시 상위 그룹의 indeterminate 전파 테스트
+test("deep leaf selection propagates indeterminate to ancestors", async () => {
+  render(<App />);
+
+  userEvent.type(screen.getByRole("textbox"), "iam configuration");
+  userEvent.click(screen.getByLabelText("액세스 키 90일 이내 교체"));
+
+  const mainCheckbox = screen.getByLabelText(/Identity & Crypto/);
+  const subCheckbox = screen.getByLabelText(/^IAM\s*\(/);
+  const minorCheckbox = screen.getByLabelText(/IAM Configuration/);
+
+  expect(mainCheckbox).toBePartiallyChecked();
+  expect(subCheckbox).toBePartiallyChecked();
+  expect(minorCheckbox).toBePartiallyChecked();
+});

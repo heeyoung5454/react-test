@@ -177,23 +177,45 @@ export default function FilterView({ data, defaultCheckedIds = [], onChange }) {
 
   // 노드 전체 체크 여부
   // - leaf(name): checkedMap 기준
-  // - 비-leaf: 자식이 전부 체크되어야 true
-  const isChecked = (node) => {
-    if (node.type === "name") {
-      return !!checkedMap[node.policyId];
-    }
+  // - 비-leaf: 하위 상태를 재귀로 모아 tri-state 계산
+  const getNodeState = useMemo(() => {
+    const cache = new WeakMap();
 
-    return node.children.every(isChecked);
+    const resolve = (node) => {
+      if (cache.has(node)) return cache.get(node);
+
+      if (node.type === "name") {
+        const leafState = {
+          checked: !!checkedMap[node.policyId],
+          indeterminate: false,
+        };
+        cache.set(node, leafState);
+        return leafState;
+      }
+
+      const childStates = node.children.map(resolve);
+      const allChecked = childStates.length > 0 && childStates.every((s) => s.checked);
+      const hasAnySelection = childStates.some((s) => s.checked || s.indeterminate);
+
+      const groupState = {
+        checked: allChecked,
+        indeterminate: hasAnySelection && !allChecked,
+      };
+      cache.set(node, groupState);
+      return groupState;
+    };
+
+    return resolve;
+  }, [checkedMap]);
+
+  const isChecked = (node) => {
+    return getNodeState(node).checked;
   };
 
   // 부분 체크(indeterminate) 여부
-  // 자식 중 일부만 체크된 상태이면 true (checkbox의 indeterminate UI)
+  // 하위 어딘가가 선택되었지만 전체 체크는 아닌 상태면 true
   const isIndeterminate = (node) => {
-    if (!node.children) return false;
-
-    const checked = node.children.filter(isChecked).length;
-    // 1개 이상 체크, 전체 체크 아닐 경우
-    return checked > 0 && checked < node.children.length;
+    return getNodeState(node).indeterminate;
   };
 
   // leaf(name) 단일 토글
@@ -206,18 +228,20 @@ export default function FilterView({ data, defaultCheckedIds = [], onChange }) {
 
   // 그룹(main/sub/minor) 체크 변경 및 하위 leaf까지 체크 전파
   const handleCheck = (node, checked) => {
-    const newMap = { ...checkedMap };
+    setCheckedMap((prev) => {
+      const newMap = { ...prev };
 
-    const dfs = (n) => {
-      if (n.type === "name") {
-        newMap[n.policyId] = checked;
-        return;
-      }
-      n.children.forEach(dfs);
-    };
+      const dfs = (n) => {
+        if (n.type === "name") {
+          newMap[n.policyId] = checked;
+          return;
+        }
+        n.children.forEach(dfs);
+      };
 
-    dfs(node);
-    setCheckedMap(newMap);
+      dfs(node);
+      return newMap;
+    });
   };
 
   // key(main>sub>minor) 단위 open 상태 토글
